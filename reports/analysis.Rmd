@@ -1,0 +1,326 @@
+---
+title: "analysis"
+author: "Danlin Mao"
+date: "2024-06-11"
+output: html_document
+---
+
+```{r}
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("tidyr")
+install.packages("scales")
+install.packages("caret")
+install.packages("randomForest")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(caret)
+library(randomForest)
+```
+
+```{r}
+# 读取之前保存的RDS文件
+data_expanded <- readRDS("C:/Users/pengu/Desktop/TMDb/TMDB_Movies_Analysis/cache/TMDB_Movies_Dataset_Cleaned.Rds")
+```
+
+
+
+##EDA
+#a.评分随时间的变化趋势
+```{r}
+# 评分随时间的变化趋势
+ggplot(data_expanded, aes(x = release_year, y = vote_average)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(title = "Trend of Movie Ratings Over Time",
+       x = "Release Year",
+       y = "Average Rating")
+```
+
+#b.核心变量的分布和关系
+```{r}
+# 预算与评分的关系
+ggplot(data_expanded, aes(x = budget, y = vote_average)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relationship Between Budget and Rating",
+       x = "Budget",
+       y = "Average Rating")
+
+# 收入与评分的关系
+ggplot(data_expanded, aes(x = revenue, y = vote_average)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "yellow") +
+  labs(title = "Relationship Between Revenue and Rating",
+       x = "Revenue",
+       y = "Average Rating")
+
+# 投票数量与评分的关系
+ggplot(data_expanded, aes(x = vote_count, y = vote_average)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "green") +
+  labs(title = "Relationship Between Vote Count and Rating",
+       x = "Vote Count",
+       y = "Average Rating")
+```
+
+#c.辅助变量的分布和关系
+```{r}
+# 受欢迎度与评分的关系
+ggplot(data_expanded, aes(x = popularity, y = vote_average)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "purple") +
+  labs(title = "Relationship Between Popularity and Rating",
+       x = "Popularity",
+       y = "Average Rating")
+
+# 不同类型电影的评分分布
+ggplot(data_expanded, aes(x = genres, y = vote_average)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Distribution of Ratings by Genre",
+       x = "Genre",
+       y = "Average Rating")
+```
+
+#特征工程
+```{r}
+# 将 genres 转换为因子类型
+data_expanded <- data_expanded %>%
+  mutate(genres = as.factor(genres))
+```
+
+```{r}
+# 使用 model.matrix 将因子变量转换为哑变量
+genres_dummies <- model.matrix(~ genres - 1, data = data_expanded)
+```
+
+```{r}
+# 将哑变量添加到原始数据集中，并移除原始分类变量
+data_expanded <- cbind(data_expanded, genres_dummies)
+data_expanded <- data_expanded %>% select(-genres)
+```
+
+```{r}
+# 检查处理结果
+str(data_expanded)
+```
+
+```{r}
+# 标准化数值变量
+data_expanded <- data_expanded %>%
+  mutate(
+    budget = rescale(budget),
+    revenue = rescale(revenue),
+    vote_count = rescale(vote_count),
+    popularity = rescale(popularity)
+  )
+```
+
+#创建训练和测试集
+```{r}
+# 创建训练和测试集
+set.seed(123)
+trainIndex <- createDataPartition(data_expanded$vote_average, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- data_expanded[ trainIndex,] # 训练集，占 80%
+testData  <- data_expanded[-trainIndex,] # 测试集，占 20%
+```
+
+```{r}
+# 检查训练集和测试集的维度
+dim(trainData)
+dim(testData)
+```
+
+```{r}
+# 过滤出所有以 genres 开头的列名
+genre_columns <- grep("^genres", colnames(data_expanded), value = TRUE)
+print(genre_columns)
+```
+
+#训练线性回归模型
+```{r}
+# 训练线性回归模型，包括所有电影类型的哑变量
+model <- lm(vote_average ~ budget + revenue + vote_count + popularity + release_year +
+            genresAction + genresAdventure + genresAnimation + genresComedy +
+            genresCrime + genresDocumentary + genresDrama + genresFamily +
+            genresFantasy + genresForeign + genresHistory + genresHorror +
+            genresMusic + genresMystery + genresRomance + `genresScience Fiction` +
+            genresThriller + genresWar + genresWestern, data=trainData)
+
+# 查看模型摘要
+summary(model)
+```
+
+#筛选显著变量之后的模型
+```{r}
+# 重新构建模型，仅保留显著变量
+model_significant <- lm(vote_average ~ budget + vote_count + popularity + release_year +
+                          genresDocumentary + genresHorror,
+                        data = trainData)
+
+# 查看新模型的摘要
+summary(model_significant)
+```
+
+```{r}
+# 使用旧模型进行预测
+predictions_old <- predict(model, newdata=testData)
+
+# 计算旧模型的均方误差（MSE）
+mse_old <- mean((predictions_old - testData$vote_average)^2)
+print(paste("Mean Squared Error (Old Model):", mse_old))
+
+# 计算旧模型的均方根误差（RMSE）
+rmse_old <- sqrt(mse_old)
+print(paste("Root Mean Squared Error (Old Model):", rmse_old))
+
+# 使用新模型进行预测
+predictions_significant <- predict(model_significant, newdata=testData)
+
+# 计算新模型的均方误差（MSE）
+mse_significant <- mean((predictions_significant - testData$vote_average)^2)
+print(paste("Mean Squared Error (Significant Variables):", mse_significant))
+
+# 计算新模型的均方根误差（RMSE）
+rmse_significant <- sqrt(mse_significant)
+print(paste("Root Mean Squared Error (Significant Variables):", rmse_significant))
+```
+
+##尝试使用随机森林回归（Random Forest Regression）模型
+```{r}
+# 训练随机森林模型
+set.seed(123)  # 设置随机种子以保证结果可重复
+rf_model <- randomForest(vote_average ~ budget + revenue + vote_count + popularity + release_year + 
+                         genresDocumentary + genresHorror, data = trainData, importance = TRUE)
+
+# 查看模型摘要
+print(rf_model)
+```
+
+#预测和验证模型性能
+```{r}
+# 使用测试集进行预测
+rf_predictions <- predict(rf_model, newdata = testData)
+
+# 计算均方误差和均方根误差
+mse_rf <- mean((rf_predictions - testData$vote_average)^2)
+rmse_rf <- sqrt(mse_rf)
+
+# 打印误差结果
+cat("Mean Squared Error (Random Forest):", mse_rf, "\n")
+cat("Root Mean Squared Error (Random Forest):", rmse_rf, "\n")
+```
+
+```{r}
+# 绘制实际值与预测值的散点图
+ggplot(testData, aes(x = vote_average, y = rf_predictions)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "Actual vs Predicted Ratings (Random Forest)", x = "Actual Ratings", y = "Predicted Ratings")
+```
+
+# 使用caret包进行交叉验证
+```{r}
+# 定义交叉验证方法
+train_control <- trainControl(method = "cv", number = 5)
+
+# 训练带有交叉验证的随机森林模型
+set.seed(123)
+rf_cv_model <- train(vote_average ~ budget + revenue + vote_count + popularity + release_year + 
+                     genresDocumentary + genresHorror, data = trainData, method = "rf", 
+                     trControl = train_control, importance = TRUE)
+
+# 查看交叉验证结果
+print(rf_cv_model)
+```
+
+```{r}
+# 使用测试集进行预测
+rf_cv_predictions <- predict(rf_cv_model, newdata = testData)
+
+# 计算均方误差和均方根误差
+mse_rf_cv <- mean((rf_cv_predictions - testData$vote_average)^2)
+rmse_rf_cv <- sqrt(mse_rf_cv)
+
+# 打印误差结果
+cat("Mean Squared Error (Random Forest with CV):", mse_rf_cv, "\n")
+cat("Root Mean Squared Error (Random Forest with CV):", rmse_rf_cv, "\n")
+```
+
+#设置 mtry 参数进行模型训练
+```{r}
+set.seed(123)
+rf_model_optimized <- randomForest(
+  formula = vote_average ~ budget + revenue + vote_count + popularity + release_year + genresDocumentary + genresHorror,
+  data = trainData,
+  mtry = 4,  # 设置最优的 mtry 参数
+  importance = TRUE
+)
+```
+
+```{r}
+predictions <- predict(rf_model_optimized, newdata = testData)
+mse <- mean((testData$vote_average - predictions)^2)
+rmse <- sqrt(mse)
+print(paste("Mean Squared Error (Random Forest with CV):", mse))
+print(paste("Root Mean Squared Error (Random Forest with CV):", rmse))
+```
+
+```{r}
+# 定义交叉验证方法
+train_control <- trainControl(method = "cv", number = 5)
+
+# 使用交叉验证训练随机森林模型，设置最优参数 mtry = 4
+set.seed(123)
+rf_model_cv_optimized <- train(
+  vote_average ~ budget + revenue + vote_count + popularity + release_year + genresDocumentary + genresHorror,
+  data = trainData,
+  method = "rf",
+  trControl = train_control,
+  tuneGrid = data.frame(mtry = 4),  # 设置最优参数
+  importance = TRUE
+)
+
+# 查看交叉验证结果
+print(rf_model_cv_optimized)
+```
+
+```{r}
+# 查看变量重要性
+importance(rf_model_optimized)
+varImpPlot(rf_model_optimized)
+```
+
+```{r}
+# 可视化实际值和预测值
+ggplot(data = data.frame(actual = testData$vote_average, predicted = predictions), aes(x = actual, y = predicted)) +
+  geom_point(color = 'blue', alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = 'red', linetype = "dashed") +
+  labs(title = "Actual vs Predicted Ratings",
+       x = "Actual Ratings",
+       y = "Predicted Ratings") +
+  theme_minimal()
+```
+
+```{r}
+# Save the optimized random forest model
+saveRDS(rf_model_optimized, file = "C:/Users/pengu/Desktop/TMDb/TMDB_Movies_Analysis/model/rf_model_optimized.rds")
+```
+
+
+
+
+
+
+
+
+
+

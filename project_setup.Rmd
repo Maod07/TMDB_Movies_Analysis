@@ -1,0 +1,28 @@
+---
+title: "Setup"
+author: "Danlin Mao"
+date: "2024-06-10"
+output: html_document
+---
+
+```{r}
+# 创建ProjectTemplate 项目
+install.packages("ProjectTemplate")
+library(ProjectTemplate)
+create.project("C:/Users/pengu/Desktop/TMDb/TMDB_Movies_Analysis", merge.strategy = "allow")
+```
+
+```{r}
+# 设置工作目录
+setwd("C:/Users/pengu/Desktop/TMDb/TMDB_Movies_Analysis")
+```
+
+```{r}
+# 加载所需的库
+library(ProjectTemplate)
+load.project()
+```
+```{r}
+list.files("munge")
+```
+
