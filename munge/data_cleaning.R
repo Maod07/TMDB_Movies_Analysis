@@ -168,3 +168,7 @@ str(data_expanded)
 
 # 检查描述性统计信息
 summary(data_expanded)
+
+
+## 将处理后的数据保存到缓存目录
+saveRDS(data_expanded, file = "C:/Users/pengu/Desktop/TMDb/TMDB_Movies_Analysis/cache/TMDB_Movies_Dataset_Cleaned.Rds")
